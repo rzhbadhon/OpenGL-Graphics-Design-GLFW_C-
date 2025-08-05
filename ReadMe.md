@@ -13,21 +13,7 @@ Press R (for "Razibul") or ESC to close the window.
 🪶 Minimal & beginner-friendly code
 
 ⚙ Build & Run
-1. Install dependencies
-GLFW – window creation & input
 
-GLAD – OpenGL function loader
-
-2. Build (example with g++)
-bash
-Copy
-Edit
-g++ src/main.cpp src/glad.c -o CyanWindow -Iinclude -lglfw3 -lopengl32 -lgdi32
-3. Run
-bash
-Copy
-Edit
-./CyanWindow
 📂 Project Structure
 makefile
 Copy
