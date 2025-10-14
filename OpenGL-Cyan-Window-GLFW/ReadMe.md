@@ -19,8 +19,8 @@ Press **R** (for "Razibul") or **ESC** to close the window.
 
 1. **Clone the repository:**
    ```sh
-   git clone https://github.com/your-username/Cyan-Window-OpenGL.git
-   cd Cyan-Window-OpenGL
+   git clone https://github.com/rzhbadhon/OpenGL-Graphics-Design-GLFW_C-.git
+   cd OpenGL-Graphics-Design-GLFW_C-
    ```
 
 2. **Make sure you have GLFW and GLAD set up in your project.**
