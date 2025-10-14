@@ -85,11 +85,16 @@ int main()
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
  
-    // upside-down triangle
+    // Define 6 vertices for a rectangle (two triangles sharing an edge)
     float vertices[] = {
-        -0.5f,  0.5f, 0.0f,  // top left
-         0.5f,  0.5f, 0.0f,  // top right
-         0.0f, -0.5f, 0.0f   // bottom
+        // first triangle
+        -0.5f, -0.5f, 0.0f,  // bottom-left
+         0.5f, -0.5f, 0.0f,  // bottom-right
+        -0.5f,  0.5f, 0.0f,  // top-left
+        // second triangle
+         0.5f, -0.5f, 0.0f,  // bottom-right
+         0.5f,  0.5f, 0.0f,  // top-right
+        -0.5f,  0.5f, 0.0f   // top-left
     };
  
     unsigned int VBO, VAO;
@@ -109,24 +114,31 @@ int main()
 {
     processInput(window);
  
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
  
     glUseProgram(shaderProgram);
     int vertexColorLocation = glGetUniformLocation(shaderProgram, "ourColor");
+
+   
  
-    if (pressed) {
-        glUniform4f(vertexColorLocation, 1.0f, 0.0f, 0.0f, 1.0f);
-    } else {
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS){
+        
+    glUniform4f(vertexColorLocation, 1.0, 0, 0, 1.0);
+    }
+     else {
         float timeValue = glfwGetTime();
-        float mixValue = (sin(timeValue) / 2.0f) + 0.5f; 
+        float mixValue = (sin(timeValue *0.4) / 2.0f) + 0.5f; 
         float r = mixValue; 
         float g = 1.0f;     
         float b = 1.0f;     
         glUniform4f(vertexColorLocation, r, g, b, 1.0f);
     }
+
+     
  
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    // Draw 6 vertices as triangles
+    glDrawArrays(GL_TRIANGLES, 0, 6);
  
     glfwSwapBuffers(window);
     glfwPollEvents();
@@ -153,4 +165,3 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
     glViewport(0, 0, width, height);
 }
- 
