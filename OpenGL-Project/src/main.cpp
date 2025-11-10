@@ -15,7 +15,7 @@
 #include <cstdlib>
 #include <ctime>
 
-// Shader sources with 3D perspective
+// Shader sources (unchanged)
 const char* vertexShaderSource = "#version 330 core\n"
 "layout (location = 0) in vec3 aPos;\n"
 "uniform mat4 model;\n"
@@ -45,8 +45,6 @@ struct Ball {
     glm::vec3 vel;
     glm::vec3 color;
     float radius;
-    float trail[20][3]; // Trail positions
-    int trailIndex;
 };
 
 struct Target {
@@ -65,41 +63,55 @@ struct Particle {
     float size;
 };
 
+struct Hazard {
+    glm::vec3 pos;
+    glm::vec3 color;
+    float radius;
+    float pulseTimer;
+};
+
 // Game state
 Ball player;
 std::vector<Target> targets;
 std::vector<Particle> particles;
-glm::vec3 gravity(0.0f, -0.5f, 0.0f);
-float cubeRotation = 0.0f;
-float cameraRotation = 0.0f;
+std::vector<Hazard> hazards;
+glm::vec3 gravity(0.0f, -0.6f, 0.0f); // Stronger gravity
 int score = 0;
-int targetCount = 8;
-bool gravityFlipped = false;
-float timeScale = 1.0f;
-float bgColorShift = 0.0f;
+int level = 1;
 
 // Function declarations
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow *window, float deltaTime);
+void processInput(GLFWwindow *window);
 void updateGame(float deltaTime);
-void spawnTargets();
-void createExplosion(glm::vec3 pos, glm::vec3 color);
+void spawnLevel(int level);
+void createExplosion(glm::vec3 pos, glm::vec3 color, int count);
 void drawCube(unsigned int shaderProgram, unsigned int VAO, glm::mat4 view, glm::mat4 projection);
-void drawSphere(unsigned int shaderProgram, unsigned int sphereVAO, int sphereVertexCount, 
-                glm::vec3 pos, float radius, glm::vec3 color, glm::mat4 view, glm::mat4 projection);
+void drawSphere(unsigned int shaderProgram, unsigned int sphereVAO, int sphereVertexCount,
+                glm::vec3 pos, float radius, glm::vec3 color, float alpha, glm::mat4 view, glm::mat4 projection);
+
+// Helper function to reset the game
+void resetGame() {
+    player.pos = glm::vec3(0.0f, 0.0f, 0.0f);
+    player.vel = glm::vec3(0.0f, 0.0f, 0.0f);
+    gravity = glm::vec3(0.0f, -0.6f, 0.0f);
+    targets.clear();
+    particles.clear();
+    hazards.clear();
+    spawnLevel(level);
+    score = (level - 1) * 100; // Keep score from previous levels
+}
 
 int main()
 {
     srand(time(0));
-    
+
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "GRAVITY CHAOS 3D", NULL, NULL);
-    if (window == NULL)
-    {
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Gravity Box", NULL, NULL);
+    if (window == NULL) {
         std::cout << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
         return -1;
@@ -107,8 +119,7 @@ int main()
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-    {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cout << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
@@ -117,7 +128,7 @@ int main()
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Compile shaders
+    // Compile shaders (unchanged)
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vertexShader);
@@ -134,19 +145,16 @@ int main()
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Create cube vertices (wireframe edges)
+    // Create cube vertices (unchanged)
     float cubeVertices[] = {
-        // Bottom face
         -0.8f, -0.8f, -0.8f,  0.8f, -0.8f, -0.8f,
          0.8f, -0.8f, -0.8f,  0.8f, -0.8f,  0.8f,
          0.8f, -0.8f,  0.8f, -0.8f, -0.8f,  0.8f,
         -0.8f, -0.8f,  0.8f, -0.8f, -0.8f, -0.8f,
-        // Top face
         -0.8f,  0.8f, -0.8f,  0.8f,  0.8f, -0.8f,
          0.8f,  0.8f, -0.8f,  0.8f,  0.8f,  0.8f,
          0.8f,  0.8f,  0.8f, -0.8f,  0.8f,  0.8f,
         -0.8f,  0.8f,  0.8f, -0.8f,  0.8f, -0.8f,
-        // Vertical edges
         -0.8f, -0.8f, -0.8f, -0.8f,  0.8f, -0.8f,
          0.8f, -0.8f, -0.8f,  0.8f,  0.8f, -0.8f,
          0.8f, -0.8f,  0.8f,  0.8f,  0.8f,  0.8f,
@@ -162,40 +170,31 @@ int main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    // Create sphere vertices (icosphere approximation)
+    // Create sphere vertices (unchanged)
     std::vector<float> sphereVertices;
     const int segments = 20;
     const int rings = 20;
     for (int i = 0; i <= rings; i++) {
         float theta1 = i * 3.14159f / rings;
         float theta2 = (i + 1) * 3.14159f / rings;
-        
         for (int j = 0; j <= segments; j++) {
             float phi1 = j * 2.0f * 3.14159f / segments;
             float phi2 = (j + 1) * 2.0f * 3.14159f / segments;
-            
-            // Triangle 1
             sphereVertices.push_back(sin(theta1) * cos(phi1));
             sphereVertices.push_back(cos(theta1));
             sphereVertices.push_back(sin(theta1) * sin(phi1));
-            
             sphereVertices.push_back(sin(theta2) * cos(phi1));
             sphereVertices.push_back(cos(theta2));
             sphereVertices.push_back(sin(theta2) * sin(phi1));
-            
             sphereVertices.push_back(sin(theta2) * cos(phi2));
             sphereVertices.push_back(cos(theta2));
             sphereVertices.push_back(sin(theta2) * sin(phi2));
-            
-            // Triangle 2
             sphereVertices.push_back(sin(theta1) * cos(phi1));
             sphereVertices.push_back(cos(theta1));
             sphereVertices.push_back(sin(theta1) * sin(phi1));
-            
             sphereVertices.push_back(sin(theta2) * cos(phi2));
             sphereVertices.push_back(cos(theta2));
             sphereVertices.push_back(sin(theta2) * sin(phi2));
-            
             sphereVertices.push_back(sin(theta1) * cos(phi2));
             sphereVertices.push_back(cos(theta1));
             sphereVertices.push_back(sin(theta1) * sin(phi2));
@@ -212,16 +211,11 @@ int main()
     glEnableVertexAttribArray(0);
 
     // Initialize player ball
-    player.pos = glm::vec3(0.0f, 0.0f, 0.0f);
-    player.vel = glm::vec3(0.0f, 0.0f, 0.0f);
     player.color = glm::vec3(0.0f, 1.0f, 1.0f);
-    player.radius = 0.08f;
-    player.trailIndex = 0;
-    for (int i = 0; i < 20; i++) {
-        player.trail[i][0] = player.trail[i][1] = player.trail[i][2] = 0.0f;
-    }
+    player.radius = 0.05f;
 
-    spawnTargets();
+    spawnLevel(level);
+    resetGame();
 
     float lastTime = glfwGetTime();
 
@@ -229,80 +223,66 @@ int main()
     while (!glfwWindowShouldClose(window))
     {
         float currentTime = glfwGetTime();
-        float deltaTime = (currentTime - lastTime) * timeScale;
+        float deltaTime = currentTime - lastTime;
         lastTime = currentTime;
+        
+        // Cap delta time to prevent physics explosions
+        if (deltaTime > 0.1f) deltaTime = 0.1f;
 
-        processInput(window, deltaTime);
+        processInput(window);
         updateGame(deltaTime);
 
-        // Dynamic background color
-        bgColorShift += deltaTime * 0.5f;
-        float r = 0.05f + sin(bgColorShift) * 0.05f;
-        float g = 0.05f + sin(bgColorShift * 1.3f) * 0.05f;
-        float b = 0.1f + sin(bgColorShift * 0.7f) * 0.05f;
-        
-        glClearColor(r, g, b, 1.0f);
+        glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
 
-        // Setup 3D camera
-        glm::mat4 projection = glm::perspective(glm::radians(60.0f), 
-                                               (float)SCR_WIDTH / (float)SCR_HEIGHT, 
+        // Setup 3D camera - STATIC
+        glm::mat4 projection = glm::perspective(glm::radians(60.0f),
+                                               (float)SCR_WIDTH / (float)SCR_HEIGHT,
                                                0.1f, 100.0f);
-        
-        glm::mat4 view = glm::mat4(1.0f);
-        view = glm::translate(view, glm::vec3(0.0f, 0.0f, -3.5f));
-        view = glm::rotate(view, cameraRotation, glm::vec3(0.0f, 1.0f, 0.0f));
-        view = glm::rotate(view, glm::radians(-20.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        // Camera is now fixed, looking at the center from the front
+        glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 0.0f, 3.0f),
+                                   glm::vec3(0.0f, 0.0f, 0.0f),
+                                   glm::vec3(0.0f, 1.0f, 0.0f));
 
-        // Draw rotating cube wireframe
+        // Draw static cube wireframe
         drawCube(shaderProgram, cubeVAO, view, projection);
 
-        // Draw player trail (motion blur effect)
-        for (int i = 0; i < 20; i++) {
-            int idx = (player.trailIndex - i + 20) % 20;
-            float alpha = (20 - i) / 20.0f * 0.3f;
-            glm::vec3 trailPos(player.trail[idx][0], player.trail[idx][1], player.trail[idx][2]);
-            
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::rotate(model, cubeRotation, glm::vec3(0.5f, 1.0f, 0.3f));
-            model = glm::translate(model, trailPos);
-            model = glm::scale(model, glm::vec3(player.radius * 0.8f));
-
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-            glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(player.color));
-            glUniform1f(glGetUniformLocation(shaderProgram, "alpha"), alpha);
-
-            glBindVertexArray(sphereVAO);
-            glDrawArrays(GL_TRIANGLES, 0, sphereVertices.size() / 3);
-        }
-
-        // Draw player ball with rotation effect
-        drawSphere(shaderProgram, sphereVAO, sphereVertices.size() / 3, 
-                  player.pos, player.radius, player.color, view, projection);
+        // Draw player ball
+        drawSphere(shaderProgram, sphereVAO, sphereVertices.size() / 3,
+                   player.pos, player.radius, player.color, 1.0f, view, projection);
 
         // Draw targets with pulse effect
         for (auto& target : targets) {
             if (!target.collected) {
                 float pulseSize = target.radius * (1.0f + sin(target.pulseTimer * 5.0f) * 0.2f);
                 drawSphere(shaderProgram, sphereVAO, sphereVertices.size() / 3,
-                          target.pos, pulseSize, target.color, view, projection);
+                           target.pos, pulseSize, target.color, 1.0f, view, projection);
             }
+        }
+
+        // Draw hazards
+        for (auto& hazard : hazards) {
+            float pulseSize = hazard.radius * (1.0f + cos(hazard.pulseTimer * 3.0f) * 0.15f);
+             drawSphere(shaderProgram, sphereVAO, sphereVertices.size() / 3,
+                       hazard.pos, pulseSize, hazard.color, 1.0f, view, projection);
         }
 
         // Draw particles
         for (auto& p : particles) {
+            float alpha = p.life / 2.0f; // Fade out
             drawSphere(shaderProgram, sphereVAO, sphereVertices.size() / 3,
-                      p.pos, p.size, p.color, view, projection);
+                       p.pos, p.size, p.color, alpha, view, projection);
         }
 
         // Update window title
+        int targetsLeft = 0;
+        for(auto& t : targets) if(!t.collected) targetsLeft++;
+        
         char title[100];
-        sprintf(title, "GRAVITY CHAOS 3D | Score: %d | Targets: %d/%d | Time: %.1fx", 
-                score, targetCount - targets.size(), targetCount, timeScale);
+        sprintf(title, "GRAVITY BOX | Level: %d | Score: %d | Targets Left: %d",
+                level, score, targetsLeft);
         glfwSetWindowTitle(window, title);
 
         glfwSwapBuffers(window);
@@ -319,60 +299,37 @@ int main()
     return 0;
 }
 
-void processInput(GLFWwindow *window, float deltaTime)
+void processInput(GLFWwindow *window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
-    float force = 1.5f;
+    float moveSpeed = 1.0f;
     
-    // Movement controls (relative to camera)
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        player.vel.y += force * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        player.vel.y -= force * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        player.vel.x -= force * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        player.vel.x += force * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-        player.vel.z -= force * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-        player.vel.z += force * deltaTime;
-
-    // Camera rotation
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-        cameraRotation -= deltaTime * 2.0f;
-    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-        cameraRotation += deltaTime * 2.0f;
+    // Horizontal Movement
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+        player.vel.x = -moveSpeed;
+    else if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+        player.vel.x = moveSpeed;
+    else
+        player.vel.x = 0; // Stop immediately
 
     // Gravity flip
     static bool spacePressed = false;
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !spacePressed) {
         gravity.y *= -1.0f;
-        gravityFlipped = !gravityFlipped;
-        createExplosion(player.pos, glm::vec3(1.0f, 1.0f, 0.0f));
+        // Add a small opposite velocity to "jump" off the surface
+        player.vel.y = gravity.y * 0.1f; 
+        createExplosion(player.pos, glm::vec3(1.0f, 1.0f, 0.0f), 20);
         spacePressed = true;
     }
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_RELEASE)
         spacePressed = false;
 
-    // Time control
-    if (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)
-        timeScale = 0.3f; // Slow motion
-    else if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS)
-        timeScale = 2.0f; // Fast forward
-    else
-        timeScale = 1.0f;
-
     // Reset
     if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-        player.pos = glm::vec3(0.0f, 0.0f, 0.0f);
-        player.vel = glm::vec3(0.0f, 0.0f, 0.0f);
-        targets.clear();
-        particles.clear();
-        spawnTargets();
-        score = 0;
+        level = 1;
+        resetGame();
     }
 }
 
@@ -384,48 +341,57 @@ void updateGame(float deltaTime)
     // Update position
     player.pos += player.vel * deltaTime;
 
-    // Update trail
-    player.trail[player.trailIndex][0] = player.pos.x;
-    player.trail[player.trailIndex][1] = player.pos.y;
-    player.trail[player.trailIndex][2] = player.pos.z;
-    player.trailIndex = (player.trailIndex + 1) % 20;
+    // Clamp to 2D
+    player.pos.z = 0.0f;
 
-    // Cube boundary collision with bounce
+    // Cube boundary collision (now 2D)
     float boundary = 0.8f - player.radius;
-    if (player.pos.x < -boundary) { player.pos.x = -boundary; player.vel.x *= -0.8f; }
-    if (player.pos.x > boundary) { player.pos.x = boundary; player.vel.x *= -0.8f; }
-    if (player.pos.y < -boundary) { player.pos.y = -boundary; player.vel.y *= -0.8f; }
-    if (player.pos.y > boundary) { player.pos.y = boundary; player.vel.y *= -0.8f; }
-    if (player.pos.z < -boundary) { player.pos.z = -boundary; player.vel.z *= -0.8f; }
-    if (player.pos.z > boundary) { player.pos.z = boundary; player.vel.z *= -0.8f; }
+    
+    // Side walls
+    if (player.pos.x < -boundary) { player.pos.x = -boundary; player.vel.x = 0; }
+    if (player.pos.x > boundary) { player.pos.x = boundary; player.vel.x = 0; }
+    
+    // Top/Bottom "floor"
+    // We stop the velocity but don't check for hazard collision here
+    if (player.pos.y < -boundary) { player.pos.y = -boundary; player.vel.y = 0; }
+    if (player.pos.y > boundary) { player.pos.y = boundary; player.vel.y = 0; }
 
-    // Rotate cube
-    cubeRotation += deltaTime * 0.3f;
+    // Check hazard collision
+    for (auto& hazard : hazards) {
+        hazard.pulseTimer += deltaTime;
+        float dist = glm::length(player.pos - hazard.pos);
+        if (dist < (player.radius + hazard.radius)) {
+            createExplosion(player.pos, player.color, 50);
+            resetGame(); // Game over, reset level
+            return; // Stop update for this frame
+        }
+    }
 
     // Check target collision
+    bool allCollected = true;
     for (auto& target : targets) {
         if (!target.collected) {
+            allCollected = false;
             target.pulseTimer += deltaTime;
             float dist = glm::length(player.pos - target.pos);
             if (dist < (player.radius + target.radius)) {
                 target.collected = true;
-                score += 100;
-                createExplosion(target.pos, target.color);
-                
-                // Respawn if all collected
-                if (std::all_of(targets.begin(), targets.end(), 
-                    [](const Target& t) { return t.collected; })) {
-                    targets.clear();
-                    targetCount += 2;
-                    spawnTargets();
-                }
+                score += 10;
+                createExplosion(target.pos, target.color, 30);
             }
         }
     }
 
+    // Check for level complete
+    if (allCollected && !targets.empty()) {
+        level++;
+        score += 100; // Level complete bonus
+        spawnLevel(level); // Go to next level
+    }
+
     // Update particles
     for (auto& p : particles) {
-        p.vel += gravity * deltaTime * 0.5f;
+        p.vel += gravity * deltaTime * 0.3f; // Particles are slightly affected by gravity
         p.pos += p.vel * deltaTime;
         p.life -= deltaTime;
         p.size *= 0.98f;
@@ -435,39 +401,67 @@ void updateGame(float deltaTime)
                     [](const Particle& p) { return p.life <= 0.0f; }), particles.end());
 }
 
-void spawnTargets()
+void spawnLevel(int level)
 {
+    // Clear old objects
+    targets.clear();
+    hazards.clear();
+    particles.clear();
+
+    // Reset player position
+    player.pos = glm::vec3(0.0f, 0.0f, 0.0f);
+    player.vel = glm::vec3(0.0f, 0.0f, 0.0f);
+    gravity = glm::vec3(0.0f, -0.6f, 0.0f); // Reset gravity
+
+    float boundary = 0.8f;
+
+    // Add hazards to top and bottom
+    for (float x = -boundary; x <= boundary; x += 0.15f) {
+        Hazard topHazard, bottomHazard;
+        topHazard.pos = glm::vec3(x, boundary - 0.05f, 0.0f);
+        topHazard.color = glm::vec3(1.0f, 0.2f, 0.2f);
+        topHazard.radius = 0.04f;
+        topHazard.pulseTimer = 0.0f;
+        
+        bottomHazard.pos = glm::vec3(x, -boundary + 0.05f, 0.0f);
+        bottomHazard.color = glm::vec3(1.0f, 0.2f, 0.2f);
+        bottomHazard.radius = 0.04f;
+        bottomHazard.pulseTimer = 0.0f;
+
+        hazards.push_back(topHazard);
+        hazards.push_back(bottomHazard);
+    }
+    
+    // Spawn targets
+    int targetCount = 2 + level; // Increase targets with level
+    float safeZone = 0.6f; // Spawn away from walls
+    
     for (int i = 0; i < targetCount; i++) {
         Target target;
         target.pos = glm::vec3(
-            ((float)rand() / RAND_MAX) * 1.2f - 0.6f,
-            ((float)rand() / RAND_MAX) * 1.2f - 0.6f,
-            ((float)rand() / RAND_MAX) * 1.2f - 0.6f
+            ((float)rand() / RAND_MAX) * safeZone * 2.0f - safeZone,
+            ((float)rand() / RAND_MAX) * safeZone * 2.0f - safeZone,
+            0.0f // Ensure Z is 0
         );
-        target.radius = 0.06f;
-        target.color = glm::vec3(
-            0.5f + (float)rand() / RAND_MAX * 0.5f,
-            0.5f + (float)rand() / RAND_MAX * 0.5f,
-            0.5f + (float)rand() / RAND_MAX * 0.5f
-        );
+        target.radius = 0.04f;
+        target.color = glm::vec3(0.2f, 1.0f, 0.2f); // Green
         target.collected = false;
-        target.pulseTimer = 0.0f;
+        target.pulseTimer = (float)rand() / RAND_MAX * 5.0f;
         targets.push_back(target);
     }
 }
 
-void createExplosion(glm::vec3 pos, glm::vec3 color)
+void createExplosion(glm::vec3 pos, glm::vec3 color, int count)
 {
-    for (int i = 0; i < 50; i++) {
+    for (int i = 0; i < count; i++) {
         Particle p;
         p.pos = pos;
-        float theta = ((float)rand() / RAND_MAX) * 6.28f;
-        float phi = ((float)rand() / RAND_MAX) * 3.14f;
-        float speed = ((float)rand() / RAND_MAX) * 0.5f + 0.2f;
+        float angle = ((float)rand() / RAND_MAX) * 6.28f; // 2D circle
+        float speed = ((float)rand() / RAND_MAX) * 1.0f + 0.2f;
         p.vel = glm::vec3(
-            sin(phi) * cos(theta) * speed,
-            sin(phi) * sin(theta) * speed,
-            cos(phi) * speed
+            cos(angle) * speed,
+            sin(angle) * speed,
+            0.0f // 2D only
         );
         p.color = color;
         p.life = 1.0f + (float)rand() / RAND_MAX;
@@ -478,13 +472,13 @@ void createExplosion(glm::vec3 pos, glm::vec3 color)
 
 void drawCube(unsigned int shaderProgram, unsigned int VAO, glm::mat4 view, glm::mat4 projection)
 {
+    // Draw a static, non-rotating cube
     glm::mat4 model = glm::mat4(1.0f);
-    model = glm::rotate(model, cubeRotation, glm::vec3(0.5f, 1.0f, 0.3f));
 
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, glm::value_ptr(model));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
-    
+
     glm::vec3 cubeColor = glm::vec3(0.3f, 0.7f, 1.0f);
     glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(cubeColor));
     glUniform1f(glGetUniformLocation(shaderProgram, "alpha"), 0.6f);
@@ -494,10 +488,10 @@ void drawCube(unsigned int shaderProgram, unsigned int VAO, glm::mat4 view, glm:
 }
 
 void drawSphere(unsigned int shaderProgram, unsigned int sphereVAO, int sphereVertexCount,
-                glm::vec3 pos, float radius, glm::vec3 color, glm::mat4 view, glm::mat4 projection)
+                glm::vec3 pos, float radius, glm::vec3 color, float alpha, glm::mat4 view, glm::mat4 projection)
 {
+    // Model matrix now only translates and scales. No rotation.
     glm::mat4 model = glm::mat4(1.0f);
-    model = glm::rotate(model, cubeRotation, glm::vec3(0.5f, 1.0f, 0.3f));
     model = glm::translate(model, pos);
     model = glm::scale(model, glm::vec3(radius));
 
@@ -505,7 +499,7 @@ void drawSphere(unsigned int shaderProgram, unsigned int sphereVAO, int sphereVe
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
     glUniform3fv(glGetUniformLocation(shaderProgram, "color"), 1, glm::value_ptr(color));
-    glUniform1f(glGetUniformLocation(shaderProgram, "alpha"), 1.0f);
+    glUniform1f(glGetUniformLocation(shaderProgram, "alpha"), alpha);
 
     glBindVertexArray(sphereVAO);
     glDrawArrays(GL_TRIANGLES, 0, sphereVertexCount);
