@@ -1,10 +1,10 @@
-#include "glad.h"
-#include "glfw3.h"
+#include "glad.h" // open gl func loader
+#include "glfw3.h" // window, i/o library
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "stb_image.h" 
 
-#include "glm/glm/glm.hpp"
+#include "glm/glm/glm.hpp" // opengl math library
 #include "glm/glm/gtc/matrix_transform.hpp"
 #include "glm/glm/gtc/type_ptr.hpp"
 
@@ -126,7 +126,7 @@ int main()
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // alpha blend
 
     // Compile shaders (unchanged)
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
