@@ -1,4 +1,4 @@
-
+# This is the repo for Computer Graphics & Multimedia Lab
 ## Requirements
 
 - C++ compiler
